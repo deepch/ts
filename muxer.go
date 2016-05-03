@@ -15,6 +15,7 @@ type Muxer struct {
 	elemStreams []ElementaryStreamInfo
 	TrackH264   *Track
 	Tracks      []*Track
+	PaddingToMakeCounterCont bool
 }
 
 func (self *Muxer) newTrack(pid uint, streamId uint) (track *Track) {
@@ -51,6 +52,31 @@ func (self *Muxer) AddH264Track() (track *Track) {
 	track.Type = H264
 	self.TrackH264 = track
 	self.Tracks = append(self.Tracks, track)
+	return
+}
+
+func (self *Muxer) writePaddingTSPackets(tsw *TSWriter) (err error) {
+	for tsw.ContinuityCounter&0xf != 0x0 {
+		header := TSHeader{
+			PID: tsw.PID,
+			ContinuityCounter: tsw.ContinuityCounter,
+		}
+		if _, err = WriteTSHeader(self.W, header, 0); err != nil {
+			return
+		}
+		tsw.ContinuityCounter++
+	}
+	return
+}
+
+func (self *Muxer) WriteTrailer() (err error) {
+	if self.PaddingToMakeCounterCont {
+		for _, track := range self.Tracks {
+			if err = self.writePaddingTSPackets(track.tsw); err != nil {
+				return
+			}
+		}
+	}
 	return
 }
 
